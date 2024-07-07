@@ -89,7 +89,6 @@ class OlmoForSampling(base.NeuronModelBase):
             attn = layer.self_attn
             mlp = layer.mlp
             new_layer = self.decoder_lm_head.new_layer()
-            new_layer.add_pre_attention_layer_norm(layer.input_layernorm.weight.detach(), None)
             new_layer.add_attention_query(attn.q_proj.weight.detach().T, None)
             new_layer.add_attention_key(attn.k_proj.weight.detach().T, None)
             new_layer.add_attention_value(attn.v_proj.weight.detach().T, None)
@@ -97,7 +96,6 @@ class OlmoForSampling(base.NeuronModelBase):
                 new_layer.add_attention_output(attn.o_proj.weight.T.detach(), None, sharding=0, transposed=True)
             else:
                 new_layer.add_attention_output(attn.o_proj.weight.detach(), None, sharding=1, transposed=False)
-            new_layer.add_pre_mlp_layer_norm(layer.post_attention_layernorm.weight.detach(), None)
 
             # Note: Automatic MLP padding is safe since zeros are *only* introduced to intermediary state
             new_layer.add_parameter(mlp.gate_proj.weight.T, sharding=1, allow_pad=True,
@@ -122,7 +120,6 @@ class OlmoForSampling(base.NeuronModelBase):
         # 4) this will introduce extra memory allocation, but ln_lm_head i/o tensor is much smaller and we can get rid of it when we can construct hlo in init
         ln_f = self.chkpt_model.model.norm
         ln_f.materialize()
-        self.decoder_lm_head.add_final_layer_norm(ln_f.weight.detach(), None)
 
         lm_head = self.chkpt_model.lm_head
         lm_head.materialize()
@@ -243,55 +240,5 @@ class OlmoForSampling(base.NeuronModelBase):
             top_k=top_k, top_p=top_p, temperature=temperature, streamer=streamer,
             stopping_criteria_list=stopping_criteria_list, no_repeat_ngram_size=no_repeat_ngram_size, cache_ids=cache_ids,
         )
-
-        return result
-
-class FIDLlamaForSampling(LlamaForSampling):
-
-    def __init__(self, config, *, n_positions=2048, batch_size=1, amp='f32', tp_degree=2,
-                 context_length_estimate=None, context_unroll=None, unroll=None,
-                 neuron_config=None, reorder_cache=False, **kwargs):
-        # Force batch_size=1 in NEFF
-        super().__init__(config, n_positions=n_positions, batch_size=1, amp=amp,
-                        tp_degree=tp_degree, context_length_estimate=context_length_estimate,
-                        context_unroll=context_unroll, unroll=unroll, neuron_config=neuron_config,
-                        reorder_cache=False, **kwargs)
-        assert len(self.decoder_lm_head.batch_size) == 1, "FIDLlamaForSampling does not support compilation for \
-            multiple batch sizes"
-        self.batch_size = self.decoder_lm_head.batch_size[0]
-        self.bos_token_id = self.config.bos_token_id
-
-
-    def sample(self, input_ids, sequence_length, start_ids=None, top_k=50, streamer=None):
-        """ Sample function
-        input_ids: shape [batch_size, context_length]
-
-        input_ids of different batch index represent single (context + query).
-        They will be mixed and generate a single output sequence.
-        """
-
-        # In FID-Llama, first, context encoding is done w/ generating any output token for context
-        # Here batch-size are different context+queries of single run
-
-        offset = 0
-        fused_batch_size = 1
-        batch_size, context_length = input_ids.shape
-
-        # The context length estimate is chosen based on single (context+query)
-        estimate = bucket.find(self.context_buckets, context_length)
-
-        if batch_size * context_length >= sequence_length:
-            raise ValueError(f"sequence_length [{sequence_length}] should be larger than fused input contexts [{context_length} x {batch_size}]")
-        if batch_size * estimate >= sequence_length:
-            raise ValueError(f"sequence_length [{sequence_length}] should be larger than fused input context estimates [{estimate} x {batch_size}]")
-
-
-        # Flatten input_ids
-        context_length = batch_size * context_length
-        input_ids = input_ids.reshape(fused_batch_size, context_length)
-
-        # Run the model
-        result = sampling.sample_llama(self, input_ids, start_ids, sequence_length,
-                                          eos_token_id=self.config.eos_token_id, top_k=top_k, streamer=streamer)
 
         return result

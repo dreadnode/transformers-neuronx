@@ -80,16 +80,19 @@ class OlmoForSamplingNoEmbeddingHlo:
     def layer(
             self, hidden, last_token_id, pos_embed, cache_ids, start_ids, mask, active_mask, core_id,
             attn_k_cache, attn_v_cache,
+            pre_attn_ln_weight, pre_attn_ln_bias,
             attn_q_weight, attn_q_scales, attn_q_bias,
             attn_k_weight, attn_k_scales, attn_k_bias,
             attn_v_weight, attn_v_scales, attn_v_bias,
             attn_out_weight, attn_out_scales, attn_out_bias,
+            post_attn_ln_weight, post_attn_ln_bias,
+            pre_mlp_ln_weight, pre_mlp_ln_bias,
             mlp_in_weight, mlp_in_scales, mlp_in_bias,
             mlp_out_weight, mlp_out_scales, mlp_out_bias,
+            post_mlp_ln_weight, post_mlp_ln_bias,
             in0_weight, in0_scales,
             in1_weight, in1_scales,
             out_weight, out_scales,
-            clip_qkv
         ):
         is_bsh = self.neuron_config and self.neuron_config.attention_layout == LAYOUT_BSH
         layer_norm = hlo.layer_norm_bsh if is_bsh else hlo.layer_norm
@@ -101,7 +104,6 @@ class OlmoForSamplingNoEmbeddingHlo:
             attn_k_weight, attn_k_scales, attn_k_bias,
             attn_v_weight, attn_v_scales, attn_v_bias,
             attn_out_weight, attn_out_scales, attn_out_bias,
-            clip_qkv
         )
         hidden = hlo.add(attn_output, hidden)
         gated_mlp = hlo.gated_mlp_bsh if is_bsh else hlo.gated_mlp
@@ -119,8 +121,8 @@ class OlmoForSamplingNoEmbeddingHlo:
         res_hidden = hlo.add(mlp_hidden, hidden)
         return res_hidden, out_attn_k_cache, out_attn_v_cache
 
-    def ln_lm_head(self, hidden, last_token_id, *unused, return_all_outputs=True):
-        logits = transformer.ln_lm_head(self.config.tp_degree, hidden, last_token_id, None, None, None, return_all_outputs, neuron_config=self.neuron_config)
+    def ln_lm_head(self, hidden, last_token_id, ln_f_weight, ln_f_bias, lm_head_weight, lm_head_bias, return_all_outputs=True):
+        logits = transformer.ln_lm_head(self.config.tp_degree, hidden, last_token_id, None, None, lm_head_weight, None, return_all_outputs, neuron_config=self.neuron_config)
         return logits
 
     def attention(
@@ -131,7 +133,6 @@ class OlmoForSamplingNoEmbeddingHlo:
         k_weight, k_scales, k_bias,
         v_weight, v_scales, v_bias,
         out_weight, out_scales, out_bias,
-        clip_qkv
     ):
         d_head = self.config.attention_head_size
         tp_degree = self.config.tp_degree
@@ -159,10 +160,10 @@ class OlmoForSamplingNoEmbeddingHlo:
             n_kv_heads_tp=n_kv_heads_tp,
         )
 
-        if clip_qkv is not None:
-            query = clamp(query, minimum=clip_qkv, maximum=clip_qkv)
-            key = clamp(key, minimum=clip_qkv, maximum=clip_qkv)
-            value = clamp(value, minimum=clip_qkv, maximum=clip_qkv)
+        if self.config.clip_qkv is not None:
+            query = clamp(query, minimum=self.config.clip_qkv, maximum=self.config.clip_qkv)
+            key = clamp(key, minimum=self.config.clip_qkv, maximum=self.config.clip_qkv)
+            value = clamp(value, minimum=self.config.clip_qkv, maximum=self.config.clip_qkv)
 
         # Q = Rotate(Q)
         # K = Rotate(K)

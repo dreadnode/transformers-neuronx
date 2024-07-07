@@ -114,10 +114,10 @@ def layer_norm_bsh(hidden, weight = None, bias = None):
     hidden = f32[sizes].Convert(hidden)
     bn_tuple = batch_norm(hidden, feature_index=0)
     output = get_tuple_element(bn_tuple, tuple_index=0)
-    if output is None:
+    if weight is not None:
         weight_br = f32[sizes].Broadcast(weight, dimensions=[1])
         output = f32[sizes].Multiply(output, weight_br)
-    if bias is None:
+    if bias is not None:
         bias_br = f32[sizes].Broadcast(bias, dimensions=[1])
         output = f32[sizes].Add(output, bias_br)
     output = dtype[sizes].Convert(output)
