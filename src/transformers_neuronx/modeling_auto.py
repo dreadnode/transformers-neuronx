@@ -12,6 +12,7 @@ NEURON_MODEL_FOR_CAUSAL_LM_MAPPING = {
     "mistral":    transformers_neuronx.MistralForSampling,
     "mixtral":    transformers_neuronx.MixtralForSampling,
     "opt":        transformers_neuronx.OPTForSampling,
+    "olmo":       transformers_neuronx.OlmoForSampling,
 }
 
 
@@ -24,6 +25,7 @@ CONFIG_MAPPING = {
     transformers.MistralConfig: "mistral",
     transformers.MixtralConfig: "mixtral",
     transformers.OPTConfig:     "opt",
+    transformers.OlmoConfig:    "olmo",
 }
 
 

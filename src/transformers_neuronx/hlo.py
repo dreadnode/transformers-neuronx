@@ -81,7 +81,7 @@ def batch_norm(tensor, feature_index, epsilon=1e-5):
     return bn_tuple
 
 
-def layer_norm(hidden, weight, bias):
+def layer_norm(hidden, weight = None, bias = None):
     scribe = hidden.scribe
     dtype = hidden.dtype
     f32 = scribe.f32
@@ -91,17 +91,19 @@ def layer_norm(hidden, weight, bias):
     hidden = dtype[sizes].Reshape(hidden)
     hidden = f32[sizes].Convert(hidden)
     bn_tuple = batch_norm(hidden, feature_index=1)
-    bn_output = get_tuple_element(bn_tuple, tuple_index=0)
-    weight_br = f32[sizes].Broadcast(weight, dimensions=[0])
-    output = f32[sizes].Multiply(bn_output, weight_br)
-    bias_br = f32[sizes].Broadcast(bias, dimensions=[0])
-    output = f32[sizes].Add(output, bias_br)
+    output = get_tuple_element(bn_tuple, tuple_index=0)
+    if weight is not None:
+        weight_br = f32[sizes].Broadcast(weight, dimensions=[0])
+        output = f32[sizes].Multiply(output, weight_br)
+    if bias is not None:
+        bias_br = f32[sizes].Broadcast(bias, dimensions=[0])
+        output = f32[sizes].Add(output, bias_br)
     output = dtype[sizes].Convert(output)
     output = dtype[input_sizes].Reshape(output)
     return output
 
 
-def layer_norm_bsh(hidden, weight, bias):
+def layer_norm_bsh(hidden, weight = None, bias = None):
     scribe = hidden.scribe
     dtype = hidden.dtype
     f32 = scribe.f32
@@ -111,11 +113,13 @@ def layer_norm_bsh(hidden, weight, bias):
     hidden = dtype[sizes].Reshape(hidden)
     hidden = f32[sizes].Convert(hidden)
     bn_tuple = batch_norm(hidden, feature_index=0)
-    bn_output = get_tuple_element(bn_tuple, tuple_index=0)
-    weight_br = f32[sizes].Broadcast(weight, dimensions=[1])
-    output = f32[sizes].Multiply(bn_output, weight_br)
-    bias_br = f32[sizes].Broadcast(bias, dimensions=[1])
-    output = f32[sizes].Add(output, bias_br)
+    output = get_tuple_element(bn_tuple, tuple_index=0)
+    if output is None:
+        weight_br = f32[sizes].Broadcast(weight, dimensions=[1])
+        output = f32[sizes].Multiply(output, weight_br)
+    if bias is None:
+        bias_br = f32[sizes].Broadcast(bias, dimensions=[1])
+        output = f32[sizes].Add(output, bias_br)
     output = dtype[sizes].Convert(output)
     output = dtype[input_sizes].Reshape(output)
     return output
